@@ -12,7 +12,7 @@ public:
 	void signal();
 
 private:
-
+	int count;
 };
 
 #endif

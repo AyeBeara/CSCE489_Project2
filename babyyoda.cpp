@@ -157,9 +157,10 @@ int main(int argv, const char *argc[]) {
 	printf("Waiting for consumer to buy up the rest.\n");
 
 	// Give the consumers a second to finish snatching up items
-	while (consumed < num_produce)
+	while (consumed < num_produce) {
 		sleep(1);
 
+	}
 	// Now make sure they all exited
 //	for (unsigned int i=0; i<NUM_CONSUMERS; i++) {
 //		pthread_join(consumers[i], NULL);
