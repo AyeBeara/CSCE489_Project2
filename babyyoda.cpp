@@ -17,7 +17,7 @@ Semaphore *full = NULL;
 
 pthread_mutex_t buf_mutex;
 
-int buffer = 0;
+int *buffer;
 int consumed = 0;
 
 
@@ -47,21 +47,22 @@ void *producer_routine(void *data) {
 		printf("Producer wants to put Yoda #%d into buffer...\n", serialnum);
 
 		// Semaphore check to make sure there is an available slot
-		full->wait();
+		empty->wait();
 
 		// Place item on the next shelf slot by first setting the mutex to protect our buffer vars
 		pthread_mutex_lock(&buf_mutex);
 
-		buffer = serialnum;
+		buffer[empty->getCount()] = serialnum; // Place the item on the shelf
+		int current_yoda = serialnum;
 		serialnum++;
 		left_to_produce--;
 
 		pthread_mutex_unlock(&buf_mutex);
 		
-		printf("   Yoda put on shelf.\n");
+		printf("   Yoda %d put on shelf.\n", current_yoda);
 		
 		// Semaphore signal that there are items available
-		empty->signal();
+		full->signal();
 
 		// random sleep but he makes them fast so 1/20 of a second
 		usleep((useconds_t) (rand() % 200000));
@@ -87,24 +88,37 @@ void *consumer_routine(void *data) {
 	bool quitthreads = false;
 
 	while (!quitthreads) {
-		printf("Consumer wants to buy a Yoda...\n");
 
-		// Semaphore to see if there are any items to take
-		empty->wait();
+		bool empty_buffer = true;
+		for (int i = 0; i < empty->getSize(); i++) {
+			if (buffer[i] != 0) {
+				empty_buffer = false;
+				break;
+			}
+		}
+		if (empty_buffer) {
+			quitthreads = true;
+		} else {
+			// Take an item off the shelf
+			printf("Consumer wants to buy a Yoda...\n");
 
-		// Take an item off the shelf
-		pthread_mutex_lock(&buf_mutex);
+			// Semaphore to see if there are any items to take
+			full->wait();
+			pthread_mutex_lock(&buf_mutex);
+		
+			printf("   Consumer bought Yoda #%d.\n", buffer[empty->getCount()]);
+			buffer[empty->getCount()] = 0;
+			consumed++;
+		
+			pthread_mutex_unlock(&buf_mutex);
+		}
+
+		if (!quitthreads) {
+			// Consumers wait up to one second
+			usleep((useconds_t) (rand() % 1000000));
+		}
 	
-		printf("   Consumer bought Yoda #%d.\n", buffer);
-		buffer = 0;
-		consumed++;
-	
-		pthread_mutex_unlock(&buf_mutex);
-
-		// Consumers wait up to one second
-		usleep((useconds_t) (rand() % 1000000));
-
-		full->signal();
+		empty->signal();
 	}
 	printf("Consumer goes home.\n");
 
@@ -129,27 +143,31 @@ int main(int argv, const char *argc[]) {
 	}
 
 	// User input on the size of the buffer
-	int num_produce = (unsigned int) strtol(argc[3], NULL, 10);
 	int buffer_size = (unsigned int) strtol(argc[1], NULL, 10);
-	int num_consumers = (unsigned int) strtol(argc[2], NULL, 10);
+	unsigned int num_consumers = (unsigned int) strtol(argc[2], NULL, 10);
+	int num_produce = (unsigned int) strtol(argc[3], NULL, 10);
 
+	buffer = new int[buffer_size];
 
 	printf("Producing %d today.\n", num_produce);
 	
 	// Initialize our semaphores
-	empty = new Semaphore(0, buffer_size);
-	full = new Semaphore(1, buffer_size);
+	empty = new Semaphore(buffer_size);
+	full = new Semaphore(0);
 
 	pthread_mutex_init(&buf_mutex, NULL); // Initialize our buffer mutex
 
 	pthread_t producer;
-	pthread_t consumer;
+	pthread_t* consumers = new pthread_t[num_consumers];
 
 	// Launch our producer thread
 	pthread_create(&producer, NULL, producer_routine, (void *) &num_produce);
 
-	// Launch our consumer thread
-	pthread_create(&consumer, NULL, consumer_routine, NULL);
+	// Launch our consumer threads
+	for (unsigned long i = 0; i < num_consumers; i++) {
+		pthread_create(&consumers[i], NULL, consumer_routine, NULL);
+	}
+	
 
 	// Wait for our producer thread to finish up
 	pthread_join(producer, NULL);
@@ -164,13 +182,15 @@ int main(int argv, const char *argc[]) {
 
 	}
 	// Now make sure they all exited
-//	for (unsigned int i=0; i<NUM_CONSUMERS; i++) {
-//		pthread_join(consumers[i], NULL);
-//	}
+	for (unsigned int i=0; i<num_consumers; i++) {
+		pthread_join(consumers[i], NULL);
+	}
 
 	// We are exiting, clean up
 	delete empty;
-	delete full;		
+	delete full;
+	delete[] consumers;
+	delete[] buffer;
 
 	printf("Producer/Consumer simulation complete!\n");
 
