@@ -10,8 +10,9 @@
  *
  *************************************************************************************/
 
-Semaphore::Semaphore(int count) {
+Semaphore::Semaphore(int count, int buffer_size) {
     this->count = count;
+    this->buffer_size = buffer_size;
 
 }
 

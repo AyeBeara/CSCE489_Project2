@@ -5,7 +5,7 @@ class Semaphore
 {
 public:
 
-	Semaphore(int count);
+	Semaphore(int count, int buffer_size);
 	~Semaphore();
 
 	void wait();
@@ -13,6 +13,9 @@ public:
 
 private:
 	int count;
+	int buffer_size;
+
+	int buffer[];
 };
 
 #endif
