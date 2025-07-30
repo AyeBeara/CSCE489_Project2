@@ -16,7 +16,12 @@ Semaphore *empty = NULL;
 Semaphore *full = NULL;
 
 pthread_mutex_t buf_mutex;
+pthread_mutex_t exit_mutex;
+pthread_cond_t exit_cond;
 
+
+bool all_produced = false;
+bool all_consumed = false;
 int *buffer;
 int consumed = 0;
 
@@ -57,17 +62,20 @@ void *producer_routine(void *data) {
 		serialnum++;
 		left_to_produce--;
 
-		pthread_mutex_unlock(&buf_mutex);
-		
 		printf("   Yoda %d put on shelf.\n", current_yoda);
-		
+
+		if (left_to_produce == 0) {
+			all_produced = true; // We are done producing, set the flag
+		}
+
 		// Semaphore signal that there are items available
 		full->signal();
+		pthread_mutex_unlock(&buf_mutex);
 
 		// random sleep but he makes them fast so 1/20 of a second
 		usleep((useconds_t) (rand() % 200000));
-	
 	}
+
 	return NULL;
 }
 
@@ -75,52 +83,48 @@ void *producer_routine(void *data) {
 /*************************************************************************************
  * consumer_routine - this function is called when the consumer thread is created.
  *
- *       Params: data - a void pointer that should point to a boolean that indicates
- *                      the thread should exit. Doesn't work so don't worry about it
+ *       Params: id - a void pointer that points to an integer that indicates
+ *                     the consumer's ID number
  *
  *       Returns: always NULL
  *
  *************************************************************************************/
 
 void *consumer_routine(void *data) {
-	(void) data;
+	int id = *((int *) data);
 
-	bool quitthreads = false;
 
-	while (!quitthreads) {
-
-		bool empty_buffer = true;
-		for (int i = 0; i < empty->getSize(); i++) {
-			if (buffer[i] != 0) {
-				empty_buffer = false;
-				break;
-			}
+	while (1) {
+		pthread_mutex_lock(&exit_mutex);
+		while (!all_consumed && full->getCount() == 0) {
+			pthread_cond_wait(&exit_cond, &exit_mutex);
 		}
-		if (empty_buffer) {
-			quitthreads = true;
-		} else {
-			// Take an item off the shelf
-			printf("Consumer wants to buy a Yoda...\n");
+		if (all_produced && full->getCount() == 0) {
+			pthread_mutex_unlock(&exit_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&exit_mutex);
+				
+		printf("Consumer %d wants to buy a Yoda...\n", id);
 
-			// Semaphore to see if there are any items to take
-			full->wait();
-			pthread_mutex_lock(&buf_mutex);
-		
-			printf("   Consumer bought Yoda #%d.\n", buffer[empty->getCount()]);
+		// Semaphore to see if there are any items to take
+		full->wait();
+		// Take an item off the shelf
+		pthread_mutex_lock(&buf_mutex);
+	
+		if (buffer[empty->getCount()] != 0) {
+			printf("   Consumer %d bought Yoda #%d.\n", id, buffer[empty->getCount()]);
 			buffer[empty->getCount()] = 0;
 			consumed++;
-		
-			pthread_mutex_unlock(&buf_mutex);
 		}
 
-		if (!quitthreads) {
-			// Consumers wait up to one second
-			usleep((useconds_t) (rand() % 1000000));
-		}
-	
+		pthread_mutex_unlock(&buf_mutex);
 		empty->signal();
+
+		// Consumers wait up to one second
+		usleep((useconds_t) (rand() % 1000000));
 	}
-	printf("Consumer goes home.\n");
+	printf("Consumer %d goes home.\n", id);
 
 	return NULL;	
 }
@@ -156,6 +160,8 @@ int main(int argv, const char *argc[]) {
 	full = new Semaphore(0);
 
 	pthread_mutex_init(&buf_mutex, NULL); // Initialize our buffer mutex
+	pthread_mutex_init(&exit_mutex, NULL); // Initialize mutex for exit condition
+	pthread_cond_init(&exit_cond, NULL);   // Initialize condition variable for exit
 
 	pthread_t producer;
 	pthread_t* consumers = new pthread_t[num_consumers];
@@ -165,7 +171,7 @@ int main(int argv, const char *argc[]) {
 
 	// Launch our consumer threads
 	for (unsigned long i = 0; i < num_consumers; i++) {
-		pthread_create(&consumers[i], NULL, consumer_routine, NULL);
+		pthread_create(&consumers[i], NULL, consumer_routine, (void *) &i);
 	}
 	
 
@@ -179,8 +185,15 @@ int main(int argv, const char *argc[]) {
 	// Give the consumers a second to finish snatching up items
 	while (consumed < num_produce) {
 		sleep(1);
-
 	}
+
+
+	pthread_mutex_lock(&exit_mutex);
+	all_consumed = true; // Set the flag to indicate all items are consumed
+	pthread_cond_broadcast(&exit_cond); // Wake up all waiting consumers
+	pthread_mutex_unlock(&exit_mutex);
+
+
 	// Now make sure they all exited
 	for (unsigned int i=0; i<num_consumers; i++) {
 		pthread_join(consumers[i], NULL);
