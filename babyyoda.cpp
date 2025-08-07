@@ -72,6 +72,9 @@ void *producer_routine(void *data) {
 		full->signal();
 		pthread_mutex_unlock(&buf_mutex);
 
+		// Signal one consumer
+		pthread_cond_signal(&exit_cond);
+
 		// random sleep but he makes them fast so 1/20 of a second
 		usleep((useconds_t) (rand() % 200000));
 	}
@@ -91,8 +94,8 @@ void *producer_routine(void *data) {
  *************************************************************************************/
 
 void *consumer_routine(void *data) {
-	int id = *((int *) data);
-
+	int id = *((int *) data) + 1;
+	delete (int *) data;
 
 	while (1) {
 		pthread_mutex_lock(&exit_mutex);
@@ -171,7 +174,8 @@ int main(int argv, const char *argc[]) {
 
 	// Launch our consumer threads
 	for (unsigned long i = 0; i < num_consumers; i++) {
-		pthread_create(&consumers[i], NULL, consumer_routine, (void *) &i);
+		int *id = new int(i);
+		pthread_create(&consumers[i], NULL, consumer_routine, (void *) id);
 	}
 	
 
